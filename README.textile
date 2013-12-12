@@ -2,7 +2,7 @@ h1. Irmgard
 
 PostgreSQL Change Detection and Replication Framework for Clojure.
 
-Irmgard uses PostgreSQL Triggers to watch for changes to row data, and leverages LISTEN and NOTIFY to be notified of those changes allowing your code...
+Irmgard uses PostgreSQL Triggers to watch for changes to row data, and leverages LISTEN and NOTIFY to be notified of those changes allowing your code.
 
 h1. Installing Irmgard in your database
 
@@ -40,4 +40,6 @@ To re-enable, call the following pl/psql function:
 pre.  irmgard.enable_all_events()
       irmgard.enable_all_events(table_name)
 
+
+Etymology of Irmgard, see: "Irmgard Replicant".
 
