@@ -34,6 +34,10 @@ COMMENT ON COLUMN irmgard.row_changes.int_primary_key  IS 'Primary key of tracke
 COMMENT ON COLUMN irmgard.row_changes.action           IS 'The DML Operation that modified the row.';
 
 -- NB: Indexes for irmgard.row_changes?
+-- use a functional index:
+CREATE UNIQUE INDEX idx_row_changes_text_pk ON irmgard.row_changes (text_primary_key)        WHERE int_primary_key  is NULL AND text_primary_key IS NOT NULL;
+CREATE UNIQUE INDEX idx_row_changes_int_pk  ON irmgard.row_changes (int_primary_key)         WHERE text_primary_key is NULL AND int_primary_key  IS NOT NULL;
+CREATE UNIQUE INDEX idx_row_changes_no_pk   ON irmgard.row_changes (schema_name, table_name) WHERE text_primary_key is NULL AND int_primary_key IS NULL;
 
 
 CREATE OR REPLACE FUNCTION irmgard.xxx() RETURNS TRIGGER AS $body$
