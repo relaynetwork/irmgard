@@ -1,0 +1,43 @@
+h1. Irmgard
+
+PostgreSQL Change Detection and Replication Framework for Clojure.
+
+Irmgard uses PostgreSQL Triggers to watch for changes to row data, and leverages LISTEN and NOTIFY to be notified of those changes allowing your code...
+
+h1. Installing Irmgard in your database
+
+* Creates irmgard schema
+* Creates irmgard.row_changes table
+* Creates irmgard.stats table
+* Creates irmgard.process_log table
+* Installs PL/PGSQL procedures
+* Attaching the Triggers on a Table
+** Specifying the primary key
+
+h1. Starting the Irmgard process in your JVM
+
+The Irmgard process is implemented as a background thread.  The thread attaches to the database and executes the PostgreSQL LISTEN command.  This thread will re-connect to the databse and re-execute LISTEN if any error occurrs.  Irmgard also performs a poll every few seconds in case the LISTEN infrastructre does not notify it of changes.
+
+When notified, the Irmgard process attempts to obtain a lock on irmgard.row_changes with NOWAIT.  If it obtains the lock, it then processes the records in irmgard.row_changes, triggering any registered listeners for groups of those rows.
+
+h1. Registering Listeners
+
+Listeners are registered via the following tuple:
+
+pre.  [ listener-name, database-name, schema-name, table-name, implementation-fn ]
+
+h1. Maintenence
+
+h3. Suspending Triggers/Events during ALTER TABLE or bulk UPDATE
+
+For very large tables, if you perform an ALTER or bulk UPDATE commands, you may want to suppress event generation during those operations.  To suspend the trigger's, call the following pl/pgsql function:
+
+pre.  irmgard.disable_all_events()
+      irmgard.disable_all_events(table_name)
+
+To re-enable, call the following pl/psql function:
+
+pre.  irmgard.enable_all_events()
+      irmgard.enable_all_events(table_name)
+
+
