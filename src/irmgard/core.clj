@@ -1,6 +1,7 @@
 (ns irmgard.core
   (:require
-   [clojure.data.json :as json])
+   [clojure.data.json :as json]
+   [clojure.java.jdbc :as jdbc])
   (:import
    [java.sql Connection DriverManager]))
 
@@ -48,6 +49,14 @@
       (recur (get c p)
              path))))
 
+(defn db-conn-info [c]
+  {:subprotocol "postgresql"
+   :subname     (c :database)
+   :classname   "org.postgresql.Driver"
+   :user        (c :username)
+   :password    (c :password)
+   :port        (c :port)})
+
 (defn config->jdbc-url [c]
   (format "jdbc:postgresql://%s:%s/%s"
           (c :host     "localhost")
@@ -59,14 +68,51 @@
     (Class/forName "org.postgresql.Driver")
     (DriverManager/getConnection url (:username c) (:password c))))
 
+(defn exec-sql [stmt binds & opts]
+  (jdbc/with-query-results rs (vec (cons stmt binds))
+    (vec rs)))
+
 (comment
+  #_(with-open [conn (connect-to-db (config :db))]
+      (jdbc/with-connection {:conn conn}
+        (exec-sql "SELECT now()" [])))
+
+  (jdbc/with-connection  (db-conn-info (config :db))
+    (exec-sql "SELECT now()" []))
 
   "http://jdbc.postgresql.org/documentation/91/listennotify.html"
 
-  (with-open [conn (connect-to-db (config :db))]
-    )
 
+  (def keep-running (atom true))
+  (reset! keep-running false)
 
+  (def nlist (atom []))
+  (class @nlist)
+  (first @nlist)
+
+  (map (fn [n]
+         {:name      (.getName n)
+          :parameter (.getParameter n)}) @nlist)
+
+  ;; NB: needs to be in a background thread...
+  (jdbc/with-connection (db-conn-info (config :db))
+    (jdbc/do-commands "LISTEN irmgard")
+    (loop [continue @keep-running]
+      ;;;
+      (exec-sql "SELECT 1" [])
+      (let [notifications (.getNotifications (jdbc/find-connection))]
+        (println (format "Found %s notifications" (count notifications)))
+        (swap! nlist (fn [curr & args]
+                       (vec (apply concat curr args)))
+               notifications))
+      (if continue
+        (do
+          (Thread/sleep 1000)
+         (recur @keep-running))
+        (println "terminating")))
+    ;; NB: this has to be in a finally block or it pollutes the connection
+    ;; instead, irmgard clients should not use a connection pool(!)
+    (jdbc/do-commands "UNLISTEN irmgard"))
 
 
   )

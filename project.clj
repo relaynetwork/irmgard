@@ -7,5 +7,5 @@
     [org.clojure/clojure "1.5.1"]
     [org.clojure/data.json "0.2.2"]
     [org.postgresql/postgresql "9.3-1100-jdbc41"]
-                             
+    [org.clojure/java.jdbc "0.2.3"]
   ])
