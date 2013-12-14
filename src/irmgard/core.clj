@@ -108,7 +108,7 @@
       (if continue
         (do
           (Thread/sleep 1000)
-         (recur @keep-running))
+          (recur @keep-running))
         (println "terminating")))
     ;; NB: this has to be in a finally block or it pollutes the connection
     ;; instead, irmgard clients should not use a connection pool(!)
