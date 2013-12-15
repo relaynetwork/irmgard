@@ -6,6 +6,9 @@
   (:import
    [java.sql Connection DriverManager]))
 
+
+;; See:   "http://jdbc.postgresql.org/documentation/91/listennotify.html"
+
 (defonce registry         (atom {}))
 (defonce indexed-registry (atom {}))
 
@@ -55,10 +58,31 @@
    :password    (c :password)
    :port        (c :port)})
 
-(defn dispatch-notifications [dbname notifications]
-  (when (not (nil? notifications))
-    (log/infof "dispatch-notifications[%s]: %s notifications" dbname (count notifications)))
-  )
+(defn process-row-changes [conf conn]
+  ;; obtain mutex, nowait
+  (let [dbname        (-> conf :dbconf :subname)]
+   (jdbc/transaction
+    (jdbc/do-commands "LOCK TABLE irmgard.process_log IN EXCLUSIVE MODE NOWAIT")
+    (log/infof "obtained EXCLUSIVE lock on irmgard.process_log")
+    ;; select and process the first block of records
+    ;; TODO: make the LIMIT configurable
+    (loop [recs (exec-sql "SELECT * FROM irmgard.row_changes ORDER BY event_id LIMIT 100" [])]
+      (when (not (empty? recs))
+        (doseq [rec recs]
+          (doseq [[observer-name observer-fn] (find-listeners dbname (:schema_name rec) (:table_name rec))]
+            (observer-fn rec))
+          (jdbc/do-prepared "DELETE FROM irmgard.row_changes WHERE event_id=?" [(:event_id rec)]))
+        (recur (exec-sql "SELECT * FROM irmgard.row_changes ORDER BY event_id LIMIT 100" []))))
+    :ok)))
+
+(defn dispatch-notifications [conf conn]
+  ;; this select is purely for side-effect
+  (exec-sql "SELECT 1" [])
+  (let [dbname        (-> conf :dbname :subname)
+        notifications (.getNotifications conn)]
+    (when (not (nil? notifications))
+      (log/infof "dispatch-notifications[%s]: %s notifications" dbname (count notifications))
+      (process-row-changes conf conn))))
 
 (defn config->jdbc-url [c]
   (format "jdbc:postgresql://%s:%s/%s"
@@ -79,10 +103,8 @@
              continue @(:continue conf)]
         (if continue
           (do
-            ;; purely for side-effect
             (log/infof "db-watcher[%s] polling" dbname)
-            (exec-sql "SELECT 1" [])
-            (dispatch-notifications dbname (.getNotifications conn))
+            (dispatch-notifications conf conn)
             (try
              (Thread/sleep sleep-time)
              (catch Exception e
@@ -157,51 +179,21 @@
     (DriverManager/getConnection url (:username c) (:password c))))
 
 (comment
-  #_(with-open [conn (connect-to-db (config :db))]
-      (jdbc/with-connection {:conn conn}
-        (exec-sql "SELECT now()" [])))
-
   (start-watcher :test1 (db-conn-info (config :db)))
   (stop-watcher :test1)
 
-  @db-watchers
 
   (jdbc/with-connection  (db-conn-info (config :db))
     (exec-sql "SELECT now()" []))
 
-  "http://jdbc.postgresql.org/documentation/91/listennotify.html"
+  (register-listener :test-listener (:database (config :db)) "irmgard" "example_table"
+                     (fn [r]
+                       (log/infof "ROW CHANGE! %s" r)))
 
-
-  (def keep-running (atom true))
-  (reset! keep-running false)
-
-  (def nlist (atom []))
-  (class @nlist)
-  (first @nlist)
-
-  (map (fn [n]
-         {:name      (.getName n)
-          :parameter (.getParameter n)}) @nlist)
-
-  ;; NB: needs to be in a background thread...
-  (jdbc/with-connection (db-conn-info (config :db))
-    (jdbc/do-commands "LISTEN irmgard")
-    (loop [continue @keep-running]
-      ;;;
-      (exec-sql "SELECT 1" [])
-      (let [notifications (.getNotifications (jdbc/find-connection))]
-        (println (format "Found %s notifications" (count notifications)))
-        (swap! nlist (fn [curr & args]
-                       (vec (apply concat curr args)))
-               notifications))
-      (if continue
-        (do
-          (Thread/sleep 1000)
-          (recur @keep-running))
-        (println "terminating")))
-    ;; NB: this has to be in a finally block or it pollutes the connection
-    ;; instead, irmgard clients should not use a connection pool(!)
-    (jdbc/do-commands "UNLISTEN irmgard"))
+  (jdbc/with-connection  (db-conn-info (config :db))
+    (process-row-changes
+     {:dbconf (db-conn-info (config :db))}
+     (jdbc/find-connection)))
 
 
   )
