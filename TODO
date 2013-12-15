@@ -10,4 +10,4 @@
 * TODO: daemon thread: invoke registered watchers
 * TODO: daemon thread: delete records from block (< max(id))
 * TODO: implement heartbeat thread in case EVENTs are missed.
-
+* TODO: add table irmgard.tracked_tables that lists the tables that have the trigger enabled on them
