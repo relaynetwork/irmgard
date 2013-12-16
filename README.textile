@@ -8,7 +8,7 @@ h1. Installing Irmgard in your database
 
 Run @install.sh@
 
-.pre  bash install.sh [[database_name]] sql/plpgsql/irmgard.sql 
+pre.  bash install.sh [[database_name]] sql/plpgsql/irmgard.sql 
 
 This will:
 
