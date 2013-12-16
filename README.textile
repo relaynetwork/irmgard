@@ -6,13 +6,23 @@ Irmgard uses PostgreSQL Triggers to watch for changes to row data, and leverages
 
 h1. Installing Irmgard in your database
 
-* Creates irmgard schema
-* Creates irmgard.row_changes table
-* Creates irmgard.stats table
-* Creates irmgard.process_log table
+Run @install.sh@
+
+.pre  bash install.sh [[database_name]] sql/plpgsql/irmgard.sql 
+
+This will:
+
+* Create irmgard schema
+* Create irmgard.row_changes table
+* Create irmgard.stats table
+* Create irmgard.process_log table
 * Installs PL/PGSQL procedures
-* Attaching the Triggers on a Table
-** Specifying the primary key
+
+To enable Irmgard to track a table, execute the following in your database:
+
+<pre>
+SELECT irmgard.enable_tracking_int_pk('your_schema_name.your_table_name', 'id');
+</pre>
 
 h1. Starting the Irmgard process in your JVM
 
@@ -29,6 +39,8 @@ pre.  [ listener-name, database-name, schema-name, table-name, implementation-fn
 h1. Maintenence
 
 h3. Suspending Triggers/Events during ALTER TABLE or bulk UPDATE
+
+NOT YET IMPLEMENTED
 
 For very large tables, if you perform an ALTER or bulk UPDATE commands, you may want to suppress event generation during those operations.  To suspend the trigger's, call the following pl/pgsql function:
 
