@@ -58,24 +58,36 @@
    :password    (c :password)
    :port        (c :port)})
 
+(defn obtain-mutex [conf conn]
+  (try
+   (jdbc/do-commands "LOCK TABLE irmgard.process_log IN EXCLUSIVE MODE NOWAIT")
+   ;; got the lock
+   true
+   (catch java.sql.SQLException ex
+     ;; did not get the lock
+     false))
+  )
+
 (defn process-row-changes [conf conn]
   ;; obtain mutex, nowait
   ;; TODO: handle failure to get lock (probably an exception)
   (let [dbname        (-> conf :dbconf :subname)]
     (jdbc/transaction
-     (jdbc/do-commands "LOCK TABLE irmgard.process_log IN EXCLUSIVE MODE NOWAIT")
-     (log/infof "obtained EXCLUSIVE lock on irmgard.process_log")
-     ;; select and process the first block of records
-     ;; TODO: make the LIMIT configurable
-     (loop [recs (exec-sql "SELECT * FROM irmgard.row_changes ORDER BY event_id LIMIT 100" [])]
-       (when (not (empty? recs))
-         ;; TODO: Instead of NxM, we could group the list of records by schema_name.table_name and pass them
-         ;; to the observer-fn as a seq
-         (doseq [rec recs]
-           (doseq [[observer-name observer-fn] (find-listeners dbname (:schema_name rec) (:table_name rec))]
-             (observer-fn [rec]))
-           (jdbc/do-prepared "DELETE FROM irmgard.row_changes WHERE event_id=?" [(:event_id rec)]))
-         (recur (exec-sql "SELECT * FROM irmgard.row_changes ORDER BY event_id LIMIT 100" []))))
+     (if (obtain-mutex conf conn)
+       (do
+         (log/infof "obtained EXCLUSIVE lock on irmgard.process_log")
+         ;; select and process the first block of records
+         ;; TODO: make the LIMIT configurable
+         (loop [recs (exec-sql "SELECT * FROM irmgard.row_changes ORDER BY event_id LIMIT 100" [])]
+           (when (not (empty? recs))
+             ;; TODO: Instead of NxM, we could group the list of records by schema_name.table_name and pass them
+             ;; to the observer-fn as a seq
+             (doseq [rec recs]
+               (doseq [[observer-name observer-fn] (find-listeners dbname (:schema_name rec) (:table_name rec))]
+                 (observer-fn [rec]))
+               (jdbc/do-prepared "DELETE FROM irmgard.row_changes WHERE event_id=?" [(:event_id rec)]))
+             (recur (exec-sql "SELECT * FROM irmgard.row_changes ORDER BY event_id LIMIT 100" [])))))
+       (log/infof "did not get lock on irmgard.process_log, another process is working with the table."))
      :ok)))
 
 (defn dispatch-notifications [conf conn]
@@ -182,8 +194,9 @@
     (DriverManager/getConnection url (:username c) (:password c))))
 
 (comment
-  (start-watcher :test1 (db-conn-info (config :db)))
-  (stop-watcher :test1)
+  (do
+    (stop-watcher :test1)
+    (start-watcher :test1 (db-conn-info (config :db))))
 
 
   (jdbc/with-connection  (db-conn-info (config :db))
