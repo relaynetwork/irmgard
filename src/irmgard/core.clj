@@ -68,6 +68,13 @@
      false))
   )
 
+(defn group-row-updates [recs]
+  (reduce (fn [acc r]
+            (update-in acc [[(:schema_name r)
+                             (:table_name  r)]]
+                       conj r))
+          {} recs))
+
 (defn process-row-changes [conf conn]
   ;; obtain mutex, nowait
   ;; TODO: handle failure to get lock (probably an exception)
@@ -82,10 +89,11 @@
            (when (not (empty? recs))
              ;; TODO: Instead of NxM, we could group the list of records by schema_name.table_name and pass them
              ;; to the observer-fn as a seq
-             (doseq [rec recs]
-               (doseq [[observer-name observer-fn] (find-listeners dbname (:schema_name rec) (:table_name rec))]
-                 (observer-fn [rec]))
-               (jdbc/do-prepared "DELETE FROM irmgard.row_changes WHERE event_id=?" [(:event_id rec)]))
+             (doseq [[[schema-name table-name] recs] (group-row-updates recs)]
+               (doseq [[observer-name observer-fn] (find-listeners dbname schema-name table-name)]
+                 (observer-fn recs))
+               (doseq [rec recs]
+                 (jdbc/do-prepared "DELETE FROM irmgard.row_changes WHERE event_id=?" [(:event_id rec)])))
              (recur (exec-sql "SELECT * FROM irmgard.row_changes ORDER BY event_id LIMIT 100" [])))))
        (log/infof "did not get lock on irmgard.process_log, another process is working with the table."))
      :ok)))
@@ -210,6 +218,8 @@
     (process-row-changes
      {:dbconf (db-conn-info (config :db))}
      (jdbc/find-connection)))
+
+
 
 
   )
