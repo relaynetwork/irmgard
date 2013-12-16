@@ -60,20 +60,23 @@
 
 (defn process-row-changes [conf conn]
   ;; obtain mutex, nowait
+  ;; TODO: handle failure to get lock (probably an exception)
   (let [dbname        (-> conf :dbconf :subname)]
-   (jdbc/transaction
-    (jdbc/do-commands "LOCK TABLE irmgard.process_log IN EXCLUSIVE MODE NOWAIT")
-    (log/infof "obtained EXCLUSIVE lock on irmgard.process_log")
-    ;; select and process the first block of records
-    ;; TODO: make the LIMIT configurable
-    (loop [recs (exec-sql "SELECT * FROM irmgard.row_changes ORDER BY event_id LIMIT 100" [])]
-      (when (not (empty? recs))
-        (doseq [rec recs]
-          (doseq [[observer-name observer-fn] (find-listeners dbname (:schema_name rec) (:table_name rec))]
-            (observer-fn rec))
-          (jdbc/do-prepared "DELETE FROM irmgard.row_changes WHERE event_id=?" [(:event_id rec)]))
-        (recur (exec-sql "SELECT * FROM irmgard.row_changes ORDER BY event_id LIMIT 100" []))))
-    :ok)))
+    (jdbc/transaction
+     (jdbc/do-commands "LOCK TABLE irmgard.process_log IN EXCLUSIVE MODE NOWAIT")
+     (log/infof "obtained EXCLUSIVE lock on irmgard.process_log")
+     ;; select and process the first block of records
+     ;; TODO: make the LIMIT configurable
+     (loop [recs (exec-sql "SELECT * FROM irmgard.row_changes ORDER BY event_id LIMIT 100" [])]
+       (when (not (empty? recs))
+         ;; TODO: Instead of NxM, we could group the list of records by schema_name.table_name and pass them
+         ;; to the observer-fn as a seq
+         (doseq [rec recs]
+           (doseq [[observer-name observer-fn] (find-listeners dbname (:schema_name rec) (:table_name rec))]
+             (observer-fn [rec]))
+           (jdbc/do-prepared "DELETE FROM irmgard.row_changes WHERE event_id=?" [(:event_id rec)]))
+         (recur (exec-sql "SELECT * FROM irmgard.row_changes ORDER BY event_id LIMIT 100" []))))
+     :ok)))
 
 (defn dispatch-notifications [conf conn]
   ;; this select is purely for side-effect
@@ -187,8 +190,8 @@
     (exec-sql "SELECT now()" []))
 
   (register-listener :test-listener (:database (config :db)) "irmgard" "example_table"
-                     (fn [r]
-                       (log/infof "ROW CHANGE! %s" r)))
+                     (fn [recs]
+                       (log/infof "ROW CHANGE! %s" recs)))
 
   (jdbc/with-connection  (db-conn-info (config :db))
     (process-row-changes
