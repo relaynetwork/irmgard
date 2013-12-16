@@ -4,7 +4,8 @@
    [clojure.java.jdbc     :as jdbc]
    [clojure.tools.logging :as log])
   (:import
-   [java.sql Connection DriverManager]))
+   [java.sql Connection         DriverManager]
+   [java.util.concurrent.atomic AtomicBoolean]))
 
 
 ;; See:   "http://jdbc.postgresql.org/documentation/91/listennotify.html"
@@ -123,7 +124,7 @@
           dbname     (-> conf :dbconf :subname)
           sleep-time (:sleep-time conf 1000)]
       (loop [conf     conf
-             continue @(:continue conf)]
+             continue (.get (:continue conf))]
         (if continue
           (do
             (log/infof "db-watcher[%s] polling" dbname)
@@ -133,12 +134,12 @@
              (catch Exception e
                ;; do nothing
                ))
-            (recur conf @(:continue conf)))
+            (recur conf (.get (:continue conf))))
           (do
             (log/infof "db-watcher[%s] terminating" dbname)))))))
 
 (defn start-watcher [wname conf]
-  (let [control-atom   (atom true)
+  (let [control-atom   (AtomicBoolean. true)
         watcher-config {:conf     conf
                         :error    (atom nil)
                         :continue control-atom
@@ -150,7 +151,7 @@
 (defn stop-watcher [name]
   (let [conf (get @db-watchers name)]
     (when conf
-      (reset! (:continue conf) false)
+      (.lazySet (:continue conf) false)
       (.interrupt (:thread conf))
       (swap! db-watchers dissoc name))))
 
@@ -202,6 +203,10 @@
     (DriverManager/getConnection url (:username c) (:password c))))
 
 (comment
+  (register-listener :test-listener (:database (config :db)) "irmgard" "example_table"
+                     (fn [recs]
+                       (log/infof "ROW CHANGE! %s" recs)))
+
   (do
     (stop-watcher :test1)
     (start-watcher :test1 (db-conn-info (config :db))))
@@ -210,9 +215,6 @@
   (jdbc/with-connection  (db-conn-info (config :db))
     (exec-sql "SELECT now()" []))
 
-  (register-listener :test-listener (:database (config :db)) "irmgard" "example_table"
-                     (fn [recs]
-                       (log/infof "ROW CHANGE! %s" recs)))
 
   (jdbc/with-connection  (db-conn-info (config :db))
     (process-row-changes
