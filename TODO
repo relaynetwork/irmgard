@@ -2,12 +2,13 @@
 * DONE: enable tracking function
 * TODO: disable tracking function
 * DONE: spike on LISTEN code in clojure
-* TODO: implement observer registry
-* TODO: implement daemon thread control functions
-* TODO: implement daemon thread/loop
-* TODO: daemon thread: read row_changes in blocks based on configurable 'batch size' (default=1k)
-* TODO: daemon thread: reduce duplicates within the block
-* TODO: daemon thread: invoke registered watchers
-* TODO: daemon thread: delete records from block (< max(id))
+* DONE: implement observer registry
+* DONE: implement daemon thread control functions
+* DONE: implement daemon thread/loop
+* DONE: daemon thread: read row_changes in blocks based on configurable 'batch size' (default=1k)
+* DONE: daemon thread: reduce duplicates within the block
+* DONE: daemon thread: invoke registered watchers
+* DONE: daemon thread: delete records from block (< max(id))
 * TODO: implement heartbeat thread in case EVENTs are missed.
+* TODO: what if the primary key is being changed? => track as DELETE + INSERT
 * TODO: add table irmgard.tracked_tables that lists the tables that have the trigger enabled on them

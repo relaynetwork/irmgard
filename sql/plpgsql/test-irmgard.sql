@@ -9,7 +9,8 @@ CREATE TABLE irmgard.example_table (
   value text
 );
 
-SELECT irmgard.enable_tracking_int_pk('irmgard.example_table', 'id');
+-- SELECT irmgard.enable_tracking_int_pk('irmgard.example_table', 'id');
+SELECT irmgard.enable_tracking_text_pk('irmgard.example_table', 'value');
 
 INSERT INTO irmgard.example_table (value) VALUES
   ('one'),

@@ -105,6 +105,44 @@ END;
 $$
 language 'plpgsql';
 
+CREATE OR REPLACE FUNCTION irmgard.on_row_change_text_pk() RETURNS TRIGGER AS $$
+DECLARE
+  _c_rec      irmgard.row_changes;
+  _c_pk       bigint;
+  _q_txt      text;
+BEGIN
+  _c_rec.schema_name = TG_TABLE_SCHEMA;
+  _c_rec.table_name  = TG_TABLE_NAME;
+  _c_rec.key_name    = TG_ARGV[0];
+
+  --RAISE NOTICE 'irmgard.on_row_change_text_pk[%]: key_name=%', TG_OP, _c_rec.key_name;
+
+  IF TG_OP = 'INSERT'  THEN
+    _q_txt = 'SELECT ($1).' || _c_rec.key_name;
+    EXECUTE _q_txt INTO _c_rec.text_primary_key USING NEW;
+    _c_rec.action = 'I';
+  ELSIF TG_OP = 'UPDATE' THEN
+    EXECUTE 'SELECT ($1).' || _c_rec.key_name INTO _c_rec.text_primary_key USING NEW;
+    _c_rec.action = 'U';
+  ELSIF TG_OP = 'DELETE' THEN
+    EXECUTE 'SELECT ($1).' || _c_rec.key_name INTO _c_rec.text_primary_key USING OLD;
+    _c_rec.action = 'D';
+  ELSE
+    raise notice 'irmgard.on_row_change[%]: ERROR unrecognized TG_OP', TG_OP;
+  END IF;
+
+  PERFORM irmgard.upsert_row_change(_c_rec);
+  PERFORM pg_notify('irmgard', TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME);
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  ELSE
+    RETURN NEW;
+  END IF;
+END;
+$$
+language 'plpgsql';
+
 CREATE OR REPLACE FUNCTION irmgard.on_truncate_table() RETURNS TRIGGER AS $$
 DECLARE
   _c_rec      irmgard.row_changes;
@@ -143,6 +181,37 @@ BEGIN
            table_name || 
            ' FOR EACH STATEMENT EXECUTE PROCEDURE irmgard.on_truncate_table()';
   --RAISE NOTICE 'irmgard.enable_tracking_int_pk: %', _q_txt;
+  EXECUTE _q_txt;
+
+  RETURN;
+END;
+$body$
+LANGUAGE plpgsql
+SECURITY DEFINER;
+-- SET search_path = pg_catalog, public;
+
+CREATE OR REPLACE FUNCTION irmgard.enable_tracking_text_pk(table_name regclass, key_name text) RETURNS void AS $body$
+DECLARE
+  _q_txt text;
+BEGIN
+  _q_txt = 'DROP TRIGGER IF EXISTS irmgard_row_tracking_trigger ON ' || table_name;
+  --RAISE NOTICE 'irmgard.enable_tracking_text_pk: %', _q_txt;
+  EXECUTE _q_txt;
+
+  _q_txt = 'CREATE TRIGGER irmgard_row_tracking_trigger AFTER INSERT OR UPDATE OR DELETE ON ' || 
+           table_name || 
+           ' FOR EACH ROW EXECUTE PROCEDURE irmgard.on_row_change_text_pk(''' || quote_ident(key_name) || ''')';
+  --RAISE NOTICE 'irmgard.enable_tracking_text_pk: %', _q_txt;
+  EXECUTE _q_txt;
+
+  _q_txt = 'DROP TRIGGER IF EXISTS irmgard_truncate_tracking_trigger ON ' || table_name;
+  --RAISE NOTICE 'irmgard.enable_tracking_text_pk: %', _q_txt;
+  EXECUTE _q_txt;
+
+  _q_txt = 'CREATE TRIGGER irmgard_truncate_tracking_trigger AFTER TRUNCATE ON ' || 
+           table_name || 
+           ' FOR EACH STATEMENT EXECUTE PROCEDURE irmgard.on_truncate_table()';
+  --RAISE NOTICE 'irmgard.enable_tracking_text_pk: %', _q_txt;
   EXECUTE _q_txt;
 
   RETURN;
