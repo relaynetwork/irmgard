@@ -128,15 +128,19 @@
         (if continue
           (do
             (log/infof "db-watcher[%s] polling" dbname)
-            (dispatch-notifications conf conn)
+            (try
+             (dispatch-notifications conf conn)
+             (catch Exception e
+               (log/errorf e "Error dispatching notifications.  Some updates failed to propigate! Retry will occurr on next NOTIFY.  Error: %s" e)))
             (try
              (Thread/sleep sleep-time)
              (catch Exception e
-               ;; do nothing
+               ;; do nothing. sleep interrupted by notify
                ))
             (recur conf (.get (:continue conf))))
           (do
             (log/infof "db-watcher[%s] terminating" dbname)))))))
+
 
 (defn start-watcher [wname conf]
   (let [control-atom   (AtomicBoolean. true)
