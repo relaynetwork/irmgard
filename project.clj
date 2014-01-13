@@ -1,4 +1,4 @@
-(defproject com.relaynetwork/irmgard "0.1.0-SNAPSHOT"
+(defproject com.relaynetwork/irmgard "0.1.0"
   :description "Irmgard: Postgres Event and Replication Framework for PostgreSQL"
   :url         "https://github.com/rn-superg/irmgard"
   :license     {:name "Eclipse Public License"
