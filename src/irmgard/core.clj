@@ -17,8 +17,6 @@
   (reset! registry         {})
   (reset! indexed-registry {}))
 
-;; (clear-registry)
-
 (defn register-listener [listener-name dbname schema-name table-name f]
   (swap! registry assoc listener-name {:dbname dbname
                                        :schema schema-name
@@ -66,8 +64,7 @@
    true
    (catch java.sql.SQLException ex
      ;; did not get the lock
-     false))
-  )
+     false)))
 
 (defn group-row-updates [recs]
   (reduce (fn [acc r]
@@ -79,7 +76,7 @@
 (defn process-row-changes [conf conn]
   ;; obtain mutex, nowait
   ;; TODO: handle failure to get lock (probably an exception)
-  (let [dbname        (-> conf :dbconf :subname)]
+  (let [dbname        (-> conf :conf :subname)]
     (jdbc/transaction
      (if (obtain-mutex conf conn)
        (do
@@ -99,12 +96,15 @@
        (log/infof "did not get lock on irmgard.process_log, another process is working with the table."))
      :ok)))
 
-(defn dispatch-notifications [conf conn]
+(defn dispatch-notifications [conf conn force-check-table?]
   ;; this select is purely for side-effect
   (exec-sql "SELECT 1" [])
-  (let [dbname        (-> conf :dbname :subname)
+  ;; NB: also, just check the table to see if it contains anything
+  (let [dbname        (-> conf :conf :subname)
         notifications (.getNotifications conn)]
-    (when (not (nil? notifications))
+    (when (or (not (nil? notifications))
+              (and force-check-table?
+                   (not (empty? (exec-sql "SELECT * FROM irmgard.row_changes LIMIT 1" [])))))
       (log/infof "dispatch-notifications[%s]: %s notifications" dbname (count notifications))
       (process-row-changes conf conn))))
 
@@ -120,16 +120,18 @@
   ;;    close database connection, ensure we do that in a finally block
   (jdbc/with-connection (db-conn-info (:dbconf conf))
     (jdbc/do-commands "LISTEN irmgard")
-    (let [conn       (jdbc/find-connection)
-          dbname     (-> conf :dbconf :subname)
-          sleep-time (:sleep-time conf 1000)]
+    (let [conn                (jdbc/find-connection)
+          dbname              (-> conf :dbconf :subname)
+          sleep-time          (:sleep-time conf 1000)
+          table-check-every-n (:table-check-every-n conf 10)]
       (loop [conf     conf
-             continue (.get (:continue conf))]
+             continue (.get (:continue conf))
+             times    0]
         (if continue
           (do
-            (log/infof "db-watcher[%s] polling" dbname)
+            (log/infof "db-watcher[%s] polling (delay=%s)" dbname sleep-time)
             (try
-             (dispatch-notifications conf conn)
+             (dispatch-notifications conf conn (zero? (mod times table-check-every-n)))
              (catch Exception e
                (log/errorf e "Error dispatching notifications.  Some updates failed to propigate! Retry will occurr on next NOTIFY.  Error: %s" e)))
             (try
@@ -137,7 +139,9 @@
              (catch Exception e
                ;; do nothing. sleep interrupted by notify
                ))
-            (recur conf (.get (:continue conf))))
+            (recur conf
+                   (.get (:continue conf))
+                   (inc times)))
           (do
             (log/infof "db-watcher[%s] terminating" dbname)))))))
 
@@ -147,7 +151,8 @@
         watcher-config {:conf     conf
                         :error    (atom nil)
                         :continue control-atom
-                        :dbconf   conf}
+                        :dbconf   conf
+                        :sleep-time (:sleep-time conf)}
         watcher-thread (Thread. (fn [] (db-watcher watcher-config)))]
     (swap! db-watchers assoc wname (assoc watcher-config :thread watcher-thread))
     (.start watcher-thread)))
