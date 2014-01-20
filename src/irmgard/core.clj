@@ -55,6 +55,7 @@
    :classname   "org.postgresql.Driver"
    :user        (or (c :username) (c :user))
    :password    (c :password)
+   :host        (or (c :host) "localhost")
    :port        (c :port)})
 
 (defn obtain-mutex [conf conn]
