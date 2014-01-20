@@ -1,4 +1,4 @@
-(defproject com.relaynetwork/irmgard "0.1.3"
+(defproject com.relaynetwork/irmgard "0.1.4-SNAPSHOT"
   :description "Irmgard: Postgres Event and Replication Framework for PostgreSQL"
   :repositories [["releases"  {:url "s3p://relay-maven-repo/releases/"  :creds :gpg}]
                  ["snapshots" {:url "s3p://relay-maven-repo/snapshots/" :creds :gpg}]
