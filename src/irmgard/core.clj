@@ -77,7 +77,9 @@
 (defn process-row-changes [conf conn]
   ;; obtain mutex, nowait
   ;; TODO: handle failure to get lock (probably an exception)
-  (let [dbname        (-> conf :conf :subname)]
+  (let [dbname        (or
+                       (-> conf :conf :database)
+                       (-> conf :conf :subname))]
     (jdbc/transaction
      (if (obtain-mutex conf conn)
        (do
@@ -101,12 +103,13 @@
   ;; this select is purely for side-effect
   (exec-sql "SELECT 1" [])
   ;; NB: also, just check the table to see if it contains anything
-  (let [dbname        (-> conf :conf :subname)
+  (let [dbname        (or (-> conf :conf :database)
+                          (-> conf :conf :subname))
         notifications (.getNotifications conn)]
     (when (or (not (nil? notifications))
               (and force-check-table?
                    (not (empty? (exec-sql "SELECT * FROM irmgard.row_changes LIMIT 1" [])))))
-      (log/infof "dispatch-notifications[%s]: %s notifications" dbname (count notifications))
+      (log/warnf "dispatch-notifications[%s]: %s notifications" dbname (count notifications))
       (process-row-changes conf conn))))
 
 (defn config->jdbc-url [c]
@@ -144,7 +147,7 @@
   ;; TODO: implement try/catch/finally to clean up:
   ;;    UNLISTEN irmgard when terminating
   ;;    close database connection, ensure we do that in a finally block
-  (jdbc/with-connection (:conf conf)
+  (jdbc/with-connection (:dbconf conf)
     (jdbc/do-commands "LISTEN irmgard")
     (let [conn                (jdbc/find-connection)
           dbname              (-> conf :dbconf :subname)
@@ -172,7 +175,13 @@
             (log/infof "db-watcher[%s] terminating" dbname)))))))
 
 
-(defn start-watcher [wname conf]
+(defn start-watcher
+  "Start an Irmgard watcher for a database.
+
+  wname is the watcher name, a Clojure keyword.
+  conf  is a map that will be passed to clojure.java.jdbc/with-connection
+"
+  [wname conf]
   (let [control-atom   (AtomicBoolean. true)
         watcher-config {:conf     conf
                         :error    (atom nil)
