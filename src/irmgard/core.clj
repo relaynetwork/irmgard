@@ -110,16 +110,41 @@
       (process-row-changes conf conn))))
 
 (defn config->jdbc-url [c]
-  (format "jdbc:postgresql://%s:%s/%s"
+  (format "jdbc:postgresql://%s:%s@%s:%s/%s"
+          (c :user)
+          (c :password)
           (c :host     "localhost")
           (c :port     "5432")
-          (c :database)))
+          (or (c :database)
+              (c :subname))))
+
+(comment
+
+  (jdbc/with-connection {:connection-uri (config->jdbc-url (:conf conf))
+                         :username       (:user (:conf conf))
+                         :password       (:password (:conf conf))}
+    (jdbc/find-connection))
+
+
+  (jdbc/with-connection {:port 5432
+                         :host "127.0.0.1"
+                         :password "postgres1"
+                         :user "rails"
+                         :classname "org.postgresql.Driver"
+                         ;; :subname "relayzone_development"
+                         :subname (str "//127.0.0.1:5432/relayzone_development" )
+                         :subprotocol "postgresql"
+                         :sleep-time 2500}
+    (jdbc/find-connection))
+
+)
+
 
 (defn db-watcher [conf]
   ;; TODO: implement try/catch/finally to clean up:
   ;;    UNLISTEN irmgard when terminating
   ;;    close database connection, ensure we do that in a finally block
-  (jdbc/with-connection (db-conn-info (:dbconf conf))
+  (jdbc/with-connection (:conf conf)
     (jdbc/do-commands "LISTEN irmgard")
     (let [conn                (jdbc/find-connection)
           dbname              (-> conf :dbconf :subname)
