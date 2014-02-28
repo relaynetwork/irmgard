@@ -19,7 +19,7 @@ COMMENT ON SCHEMA irmgard IS 'Irmgard: Postgres Data Replication Framework (http
 --
 DROP TABLE IF EXISTS irmgard.row_changes;
 CREATE TABLE irmgard.row_changes (
-  event_id         bigserial primary key, 
+  event_id         bigserial primary key,
   created_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
   schema_name      information_schema.sql_identifier NOT NULL,
   table_name       information_schema.sql_identifier NOT NULL,
@@ -55,7 +55,7 @@ BEGIN
           key_name,
           text_primary_key,
           int_primary_key,
-          action) 
+          action)
   VALUES (cache_rec.schema_name,
           cache_rec.table_name,
           cache_rec.key_name,
@@ -70,8 +70,8 @@ language 'plpgsql';
 CREATE OR REPLACE FUNCTION irmgard.on_row_change_int_pk() RETURNS TRIGGER AS $$
 DECLARE
   _c_rec      irmgard.row_changes;
+  _c_rec_alt  irmgard.row_changes;
   _c_pk       bigint;
-  _q_txt      text;
 BEGIN
   _c_rec.schema_name = TG_TABLE_SCHEMA;
   _c_rec.table_name  = TG_TABLE_NAME;
@@ -80,12 +80,19 @@ BEGIN
   --RAISE NOTICE 'irmgard.on_row_change_int_pk[%]: key_name=%', TG_OP, _c_rec.key_name;
 
   IF TG_OP = 'INSERT'  THEN
-    _q_txt = 'SELECT ($1).' || _c_rec.key_name;
-    EXECUTE _q_txt INTO _c_rec.int_primary_key USING NEW;
+    EXECUTE 'SELECT ($1).' || _c_rec.key_name INTO _c_rec.int_primary_key USING NEW;
     _c_rec.action = 'I';
   ELSIF TG_OP = 'UPDATE' THEN
     EXECUTE 'SELECT ($1).' || _c_rec.key_name INTO _c_rec.int_primary_key USING NEW;
     _c_rec.action = 'U';
+    EXECUTE 'SELECT ($1).' || _c_rec.key_name INTO _c_rec_alt.int_primary_key USING OLD;
+    IF _c_rec.int_primary_key != _c_rec_alt.int_primary_key THEN
+      _c_rec_alt.schema_name = TG_TABLE_NAME;
+      _c_rec_alt.table_name  = TG_TABLE_NAME;
+      _c_rec_alt.key_name    = TG_ARGV[0];
+      _c_rec_alt.action = 'U';
+      PERFORM irmgard.upsert_row_change(_c_rec_alt);
+    END IF;
   ELSIF TG_OP = 'DELETE' THEN
     EXECUTE 'SELECT ($1).' || _c_rec.key_name INTO _c_rec.int_primary_key USING OLD;
     _c_rec.action = 'D';
@@ -108,28 +115,35 @@ language 'plpgsql';
 CREATE OR REPLACE FUNCTION irmgard.on_row_change_text_pk() RETURNS TRIGGER AS $$
 DECLARE
   _c_rec      irmgard.row_changes;
+  _c_rec_alt  irmgard.row_changes;
   _c_pk       bigint;
-  _q_txt      text;
 BEGIN
   _c_rec.schema_name = TG_TABLE_SCHEMA;
   _c_rec.table_name  = TG_TABLE_NAME;
   _c_rec.key_name    = TG_ARGV[0];
 
-  --RAISE NOTICE 'irmgard.on_row_change_text_pk[%]: key_name=%', TG_OP, _c_rec.key_name;
-
   IF TG_OP = 'INSERT'  THEN
-    _q_txt = 'SELECT ($1).' || _c_rec.key_name;
-    EXECUTE _q_txt INTO _c_rec.text_primary_key USING NEW;
+    EXECUTE 'SELECT ($1).' || _c_rec.key_name INTO _c_rec.text_primary_key USING NEW;
     _c_rec.action = 'I';
   ELSIF TG_OP = 'UPDATE' THEN
     EXECUTE 'SELECT ($1).' || _c_rec.key_name INTO _c_rec.text_primary_key USING NEW;
     _c_rec.action = 'U';
+    EXECUTE 'SELECT ($1).' || _c_rec.key_name INTO _c_rec_alt.text_primary_key USING OLD;
+    IF _c_rec.text_primary_key != _c_rec_alt.text_primary_key THEN
+      _c_rec_alt.schema_name = TG_TABLE_NAME;
+      _c_rec_alt.table_name  = TG_TABLE_NAME;
+      _c_rec_alt.key_name    = TG_ARGV[0];
+      _c_rec_alt.action = 'U';
+      PERFORM irmgard.upsert_row_change(_c_rec_alt);
+    END IF;
   ELSIF TG_OP = 'DELETE' THEN
     EXECUTE 'SELECT ($1).' || _c_rec.key_name INTO _c_rec.text_primary_key USING OLD;
     _c_rec.action = 'D';
   ELSE
-    raise notice 'irmgard.on_row_change[%]: ERROR unrecognized TG_OP', TG_OP;
+    raise WARNING 'irmgard.on_row_change[%]: ERROR unrecognized TG_OP', TG_OP;
   END IF;
+
+  RAISE NOTICE 'irmgard.on_row_change_text_pk[%]: table=%.% key[%]="%"', TG_OP, _c_rec.schema_name, _c_rec.table_name,_c_rec.key_name, _c_rec.text_primary_key;
 
   PERFORM irmgard.upsert_row_change(_c_rec);
   PERFORM pg_notify('irmgard', TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME);
@@ -167,8 +181,8 @@ BEGIN
   --RAISE NOTICE 'irmgard.enable_tracking_int_pk: %', _q_txt;
   EXECUTE _q_txt;
 
-  _q_txt = 'CREATE TRIGGER irmgard_row_tracking_trigger AFTER INSERT OR UPDATE OR DELETE ON ' || 
-           table_name || 
+  _q_txt = 'CREATE TRIGGER irmgard_row_tracking_trigger AFTER INSERT OR UPDATE OR DELETE ON ' ||
+           table_name ||
            ' FOR EACH ROW EXECUTE PROCEDURE irmgard.on_row_change_int_pk(''' || quote_ident(key_name) || ''')';
   --RAISE NOTICE 'irmgard.enable_tracking_int_pk: %', _q_txt;
   EXECUTE _q_txt;
@@ -177,8 +191,8 @@ BEGIN
   --RAISE NOTICE 'irmgard.enable_tracking_int_pk: %', _q_txt;
   EXECUTE _q_txt;
 
-  _q_txt = 'CREATE TRIGGER irmgard_truncate_tracking_trigger AFTER TRUNCATE ON ' || 
-           table_name || 
+  _q_txt = 'CREATE TRIGGER irmgard_truncate_tracking_trigger AFTER TRUNCATE ON ' ||
+           table_name ||
            ' FOR EACH STATEMENT EXECUTE PROCEDURE irmgard.on_truncate_table()';
   --RAISE NOTICE 'irmgard.enable_tracking_int_pk: %', _q_txt;
   EXECUTE _q_txt;
@@ -198,8 +212,8 @@ BEGIN
   --RAISE NOTICE 'irmgard.enable_tracking_text_pk: %', _q_txt;
   EXECUTE _q_txt;
 
-  _q_txt = 'CREATE TRIGGER irmgard_row_tracking_trigger AFTER INSERT OR UPDATE OR DELETE ON ' || 
-           table_name || 
+  _q_txt = 'CREATE TRIGGER irmgard_row_tracking_trigger AFTER INSERT OR UPDATE OR DELETE ON ' ||
+           table_name ||
            ' FOR EACH ROW EXECUTE PROCEDURE irmgard.on_row_change_text_pk(''' || quote_ident(key_name) || ''')';
   --RAISE NOTICE 'irmgard.enable_tracking_text_pk: %', _q_txt;
   EXECUTE _q_txt;
@@ -208,8 +222,8 @@ BEGIN
   --RAISE NOTICE 'irmgard.enable_tracking_text_pk: %', _q_txt;
   EXECUTE _q_txt;
 
-  _q_txt = 'CREATE TRIGGER irmgard_truncate_tracking_trigger AFTER TRUNCATE ON ' || 
-           table_name || 
+  _q_txt = 'CREATE TRIGGER irmgard_truncate_tracking_trigger AFTER TRUNCATE ON ' ||
+           table_name ||
            ' FOR EACH STATEMENT EXECUTE PROCEDURE irmgard.on_truncate_table()';
   --RAISE NOTICE 'irmgard.enable_tracking_text_pk: %', _q_txt;
   EXECUTE _q_txt;
@@ -233,7 +247,7 @@ $body$;
 
 DROP TABLE IF EXISTS irmgard.process_log;
 CREATE TABLE irmgard.process_log (
-  event_id       bigserial primary key, 
+  event_id       bigserial primary key,
   started_at     TIMESTAMP WITH TIME ZONE NOT NULL,
   ended_at       TIMESTAMP WITH TIME ZONE NOT NULL,
   hostname       text   NOT NULL,
