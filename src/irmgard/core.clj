@@ -99,6 +99,13 @@
        (log/infof "did not get lock on irmgard.process_log, another process is working with the table."))
      :ok)))
 
+;; get lock, nowait
+;;   determine block SIZE=N
+;;   min id, max id in the block
+;;   group by table/schema
+;;   dispatch to all registerd listeners
+
+
 (defn dispatch-notifications [conf conn force-check-table?]
   ;; this select is purely for side-effect
   (exec-sql "SELECT 1" [])
